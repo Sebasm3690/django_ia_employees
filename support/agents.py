@@ -1,7 +1,7 @@
 from support.models import Conversation
 from .gemini_client import Anthropic
 from django.conf import settings
-from .tools import get_order_details, get_refund_history, check_delivery_status
+from .tools import get_order_details, get_refund_history, check_delivery_status, get_customer_risk_profile
 
 # Initialize Gemini client
 client = Anthropic(api_key=settings.GEMINI_API_KEY)
@@ -29,6 +29,8 @@ Important rules:
 - Always check order details first before responding
 - Never approve or deny a refund yourself
 - If refund decision is needed - tell customer you are checking with your team
+- While you are escalating, tell the customer you are checking with your team.
+- Once the manager returns a decision, clearly and politely inform the customer of the final outcome (Approved, Denied, or currently under further review by the Risk Team).
 """
 
 
@@ -54,9 +56,36 @@ Important rules:
 - Keep your response concise and professional
 """
 
+
+RISK_SYSTEM_PROMPT = """
+You are a fraud risk analyst at CoolBreeze AC.
+A support manager has sent you a customer profile for risk assessment.
+
+Your job:
+- Analyse the customer's order and refund patterns
+- Identify suspicious behaviour
+- Return a clear risk verdict
+
+Risk levels:
+- LOW — genuine customer, normal behaviour
+- MEDIUM — some suspicious signals, proceed with caution
+- HIGH — clear fraud pattern, recommend denial
+
+Your response format:
+- Risk Level: LOW / MEDIUM / HIGH
+- Key Signals: what you found suspicious or genuine
+- Recommendation: what manager should do
+
+Important:
+- Be objective — base verdict on data only
+- One bad refund does not make someone fraudulent
+- Look for patterns — not isolated incidents
+"""
+
 #SUPPORT SYSTEN PROMPT --> Maya's job description
 SUPPORT_SYSTEN_PROMPT = SUPPORT_SYSTEM_PROMPT
 MANAGER_SYSTEM_PROMPT = MANAGER_SYSTEM_PROMPT
+RISK_SYSTEM_PROMPT = RISK_SYSTEM_PROMPT
 
 # SUPPORT TOOLS -> Tool schemas, that AI agents will read
 SUPPORT_TOOLS = [
@@ -109,7 +138,7 @@ SUPPORT_TOOLS = [
 
   },
 
-  {
+   {
     "name": "escalate_to_manager",
     "description": "Escalate the case to manager for refund decision. Always include customer's user_id in the case summary so manager can assess fraud risk accurately.",
     "input_schema": {
@@ -123,24 +152,48 @@ SUPPORT_TOOLS = [
       "required": ["case_summary"]
     }
   },
-
-  {
-    "name": "search_knowledge_base",
-    "description": "Search CoolBreeze AC company documents including refund policy, warranty policy, and product FAQs. Use this when customer asks about company policies, warranty coverage, warranty claims, refund eligibility, or any general product information that requires accurate company documentation.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "The search query to find relevant information from company documents. Be specific — for example 'refund eligibility within 30 days' instead of just 'refund'."
-          }
-        },
-      "required": ["query"]
-    }
-  }
-
-
 ]
+
+
+#Bridge betweeen the MANAGER and the risk AGENT
+#This tool doesn't have anything to do with the database for that reason we don't have to create it inside tools.py
+MANAGER_TOOLS = [
+    {
+        "name": "assess_fraud_risk",
+        "description": "Consult the risk agent to assess fraud risk for a customer. Use this when refund request looks suspicious or customer has multiple refund requests. Pass the user_id to get a risk verdict.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "integer",
+                    "description": "The user ID to assess fraud risk for"
+                }
+            },
+            "required": ["user_id"]
+        }
+    }
+]
+
+
+RISK_TOOLS = [
+   {
+        "name": "get_customer_risk_profile",
+        "description": "Get complete risk profile for a customer including order history, refund patterns and ratio. Use this to assess fraud risk.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "integer",
+                    "description": "The user ID to assess risk for"
+                }
+            },
+            "required": ["user_id"]
+        }
+    }
+]
+
+
+
 
 
 
@@ -161,6 +214,17 @@ def execute_tool(tool_name, tool_input):
     decision = run_manager_agent(case_summary)
     print("Manager decision====>", decision)
     return decision
+
+  if tool_name == "assess_fraud_risk":
+    user_id = tool_input['user_id'] #We get the user ID from the input schema
+    print("Consulting risk agent for user==>", user_id)
+    veredict = run_risk_agent(user_id)
+    print("Risk agent verdict====>",veredict)
+    return veredict
+
+  
+  if tool_name == "get_customer_risk_profile":
+    return get_customer_risk_profile(tool_input['user_id'])
     
 
 
@@ -188,24 +252,26 @@ def run_support_agent(user_message, conversation_id, order_id, user_id):
       messages=conversation_messages
     )
 
-    print('response==>', response.stop_reason)
-    print('content==>', response.content)
+    print('agent response==>', response.stop_reason)
+    print('agent content==>', response.content)
 
     if response.stop_reason == 'tool_use':
       tool_result = []
       for block in response.content:
         if block.type == 'tool_use':
-          print("tool call=>", block.name)
-          print("tool input=>", block.input)
+          print("agent tool call=>", block.name)
+          print("agent tool input=>", block.input)
 
           result = execute_tool(block.name, block.input)
-          print("tool result=>", result)
+          print("agent tool result=>", result)
 
           tool_result.append({
             "type": "tool_result",
-            "tool_use_id": block.id,
+            "tool_use_id": block.id, #OUR AGENT KNOWS WHICH RESPONSE BELONGS TO WHICH INPUT
             "content": str(result)
           })
+
+      #Here we append the previous messages before sending them to the LLM again
 
       # Add assistant's tool call turn to conversation history
       conversation_messages.append({
@@ -233,6 +299,7 @@ def run_manager_agent(case_summary):
       model = anthropic_model,
       max_tokens = 1024,
       system = MANAGER_SYSTEM_PROMPT,
+      tools = MANAGER_TOOLS,
       messages=manager_messages
     )
 
@@ -240,7 +307,10 @@ def run_manager_agent(case_summary):
       tool_result = []
       for block in response.content:
         if block.type == "tool_use":
+          # execute the tool
           result = execute_tool(block.name, block.input)
+          print("manager executing tool ==>", block.name)
+          print("manager tool result ==>", result)
 
           tool_result.append({
             "type": "tool_result",
@@ -259,6 +329,55 @@ def run_manager_agent(case_summary):
       })
     else:
       return response.content[0].text
+
+  
+def run_risk_agent(user_id):
+  risk_messages = [
+    {"role":"user","content":f"Analyze the risk profile for the user {user_id}. Use your tool to get their profile and return a verdict."}
+  ]
+
+  while True:
+    response = client.messages.create(
+      model = anthropic_model,
+      max_tokens=1024,
+      system=RISK_SYSTEM_PROMPT,
+      tools=RISK_TOOLS,
+      messages=risk_messages
+    )
+
+    print(f'response stop reason ==> {response.stop_reason}')
+    print(f'response content ==> {response.content}')
+
+    if response.stop_reason == 'tool_use':
+      tool_result = []
+      for block in response.content:
+        if block.type == 'tool_use':
+          print(f"risk tool call => {block.name}")
+          print(f"risk tool input => {block.input}")
+
+          result = execute_tool(block.name, block.input)
+          print(f"risk tool result => {result}")
+
+          tool_result.append({
+            "type": "tool_result",
+            "tool_use_id": block.id,
+            "content": str(result)
+          })
+
+        risk_messages.append({
+          "role": "assistant",
+          "content": response.content
+        })
+
+        risk_messages.append({
+          "role": "user",
+          "content": tool_result
+        })
+    else:
+      return response.content[0].text
+      
+        
+
       
 
 

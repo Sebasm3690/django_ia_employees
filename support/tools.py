@@ -1,20 +1,19 @@
-from orders.models import RefundRequest
-from time import timezone
-from orders.models import Order
+from django.utils import timezone
+from orders.models import RefundRequest, Order
 from .tracking_data import DELIVERY_DATA
 
-def get_orders_details(order_id: int):
-  order = Order.objects.get(id=order_id)
+def get_order_details(order_id: int):
   try:
+    order = Order.objects.get(id=order_id)
     return {
       "order_id": order.id,
-      "product_name":order.product_name,
-      "amount": order.amount,
+      "product_name": order.product_name,
+      "amount": float(order.amount),
       "status": order.status,
       "carrier": order.carrier,
       "tracking_number": order.tracking_number,
       "delivery": order.delivery,
-      "ordered_on": order.created_at,
+      "ordered_on": order.created_at.strftime("%d %b %Y"),
       "days_since_order": (timezone.now() - order.created_at).days
     }
   except Order.DoesNotExist:

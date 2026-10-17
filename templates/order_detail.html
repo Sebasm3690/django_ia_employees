@@ -340,6 +340,15 @@
               id="chat-messages"
               class="chat-messages p-3 d-flex flex-column gap-2"
             >
+              {% for msg in conversation.messages.all %}
+              <div
+                class="{% if msg.role == 'user' %}costumer-message{% else %}agent-message{% endif %} p-2 px-3"
+                style="font-size: 13px; max-width: 85%"
+              >
+                {{ msg.content }}
+              </div>
+              {% endfor %}
+
               <div
                 class="agent-message p-2 px-3"
                 style="font-size: 13px; max-width: 80%"
@@ -366,6 +375,34 @@
       </div>
     </div>
     <script>
+      let typingTimeout = null;
+
+      function showTyping() {
+        const messages = document.getElementById('chat-messages');
+        if (document.getElementById('typing-indicator')) return;
+
+        messages.insertAdjacentHTML(
+          'beforeend',
+          `
+        <div id="typing-indicator" class="agent-message p-2 px-3" style="font-size:13px; max-width:85%;">
+          Typing...
+        </div>
+        `,
+        );
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function hideTyping() {
+        if (typingTimeout) {
+          clearTimeout(typingTimeout);
+          typingTimeout = null;
+        }
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) {
+          indicator.remove();
+        }
+      }
+
       function showChat() {
         document.getElementById('help-card').style.display = 'none';
         const chatBox = document.getElementById('chat-box');
@@ -384,9 +421,10 @@
         div.innerText = text;
 
         messages.appendChild(div);
+        messages.scrollTop = messages.scrollHeight;
       }
 
-      function sendMessage() {
+      async function sendMessage() {
         const input = document.getElementById('chat-input');
         const message = input.value.trim();
 
@@ -395,6 +433,36 @@
 
         appendMessage(message, 'costumer');
         input.value = '';
+        input.disabled = true;
+
+        showTyping();
+
+        try {
+          const response = await fetch('/support/chat/{{order.id}}/', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': '{{csrf_token}}',
+            },
+            body: JSON.stringify({ message: message }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Server returned ${response.status}`);
+          }
+
+          const data = await response.json();
+          hideTyping();
+          appendMessage(data.reply, 'agent');
+        } catch (error) {
+          console.error('Error:', error);
+          hideTyping();
+          appendMessage('Sorry, something went wrong', 'agent');
+        } finally {
+          hideTyping();
+          input.disabled = false;
+          input.focus();
+        }
       }
 
       document

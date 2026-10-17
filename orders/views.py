@@ -1,3 +1,4 @@
+from support.models import Conversation
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -14,6 +15,7 @@ def orders_list(request):
   return render(request, 'orders_list.html', context)
 
 
+@login_required
 def order_detail(request, order_id):
   order = get_object_or_404(Order, id=order_id, user=request.user)
 
@@ -22,9 +24,12 @@ def order_detail(request, order_id):
     '-created_at'  #latest refund first
   )
 
+  conversation, _ = Conversation.objects.get_or_create(user=request.user, order=order)
+
   context = {
     'order': order,
-    'refunds': refunds
+    'refunds': refunds,
+    'conversation': conversation,
   }
   return render(request, 'order_detail.html', context)
 

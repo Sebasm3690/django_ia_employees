@@ -35,6 +35,8 @@ Important rules:
   1. If Approved: Tell them it is approved.
   2. If Denied: Tell them it is denied and provide the manager's reason.
   3. If Escalated to Risk Team: Explicitly say "Your case is currently under further review by our Risk Team.".
+- Never use bold text, bullet points or any markdown formatting. Plain text only. 
+- Keep replies consice and conversational. Maximum 3-4 sentences. No long paragraphs.
 """
 
 

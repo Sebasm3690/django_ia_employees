@@ -6,10 +6,19 @@ from orders.models import Order
 class Conversation(models.Model):
   user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="converstations")
   order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="conversations")
-  creted_at = models.DateTimeField(auto_now_add=True)
+  created_at = models.DateTimeField(auto_now_add=True)
 
   def __str__(self):
     return f"Conversation #{self.id} - {self.user.username} / Order #{self.order.id}"
+
+  @property  #This function will be threated as a propery
+  def manager_involved(self):
+    return self.agentlogs.filter(event_type="manager").exists()
+
+  @property
+  def risk_involved(self):
+    return self.agentlogs.filter(event_type="risk").exists()
+
 
 
 class Message(models.Model):
@@ -33,6 +42,7 @@ class AgentLog(models.Model):
     ("support", "Support Agent"),
     ("tool_call", "Tool Call"),
     ("tool_result", "Tool Result"),
+    ("manager","Manager Agent"),
     ("risk","Risk Agent"),
     ("final","Final Reply"),
   ]

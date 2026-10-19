@@ -223,7 +223,7 @@
         border-radius: 0px 10px 10px 10px;
       }
 
-      .costumer-message {
+      .customer-message {
         background-color: #1a1a2e;
         color: #fff;
         border-radius: 10px 0 10px 10px;
@@ -342,7 +342,7 @@
             >
               {% for msg in conversation.messages.all %}
               <div
-                class="{% if msg.role == 'user' %}costumer-message{% else %}agent-message{% endif %} p-2 px-3"
+                class="{% if msg.role == 'user' %}customer-message{% else %}agent-message{% endif %} p-2 px-3"
                 style="font-size: 13px; max-width: 85%"
               >
                 {{ msg.content }}
@@ -413,7 +413,7 @@
         const messages = document.getElementById('chat-messages');
         const div = document.createElement('div');
         div.classList.add(
-          type === 'costumer' ? 'costumer-message' : 'agent-message',
+          type === 'customer' ? 'customer-message' : 'agent-message',
         );
         div.classList.add('p-2', 'px-3');
         div.style.fontSize = '13px';
@@ -431,7 +431,7 @@
         // Don't send empty message
         if (!message) return;
 
-        appendMessage(message, 'costumer');
+        appendMessage(message, 'customer');
         input.value = '';
         input.disabled = true;
 

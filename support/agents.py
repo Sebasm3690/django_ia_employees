@@ -1,8 +1,10 @@
+from support.event_queue import DONE
 from support.models import AgentLog
 from support.models import Conversation
 from .gemini_client import Anthropic
 from django.conf import settings
 from .tools import get_order_details, get_refund_history, check_delivery_status, get_customer_risk_profile
+from .event_queue import publish
 
 # Initialize Gemini client
 client = Anthropic(api_key=settings.GEMINI_API_KEY)
@@ -261,14 +263,20 @@ def run_support_agent(user_message, conversation_id, order_id, user_id):
     print('agent response==>', response.stop_reason)
     print('agent content==>', response.content)
 
-    if response.stop_reason == 'tool_use':
+    if response.stop_reason == 'tool_use': 
       tool_result = []
       for block in response.content:
         if block.type == 'tool_use':
+          # publish event to the client
+          event = {"type": "tool_call", "message":f"Calling tool {block.name} with {block.input}"}
+          publish(conversation_id, event) # Luego de publish salta source.onMessage en "conversation_detail.html"
           # log tool call
           AgentLog.objects.create(conversation=conv, event_type="tool_call", message=f"Calling tool {block.name} with input {block.input}")
           # Execute the tool
           result = execute_tool(block.name, block.input, conversation_id)
+          # Publish tool result to the client
+          event = {"type": "tool_result", "message":f"Tool {block.name} returned {str(result)[:200]}"}
+          publish(conversation_id, event)
           # Log tool result
           AgentLog.objects.create(conversation=conv, event_type="tool_result", message=f"Tool {block.name} returned {str(result)[:200]}")
           tool_result.append({
@@ -292,13 +300,23 @@ def run_support_agent(user_message, conversation_id, order_id, user_id):
       })
 
     else:
+      final_reply = response.content[0].text
+      #Publish final reply
+      event = {"type": "final", "message": final_reply}
+      publish(conversation_id,event)
       #Log final reply
-      AgentLog.objects.create(conversation=conv, event_type="final", message=response.content[0].text)
-      return response.content[0].text
+      AgentLog.objects.create(conversation=conv, event_type="final", message=final_reply)
+
+      publish(conversation_id, DONE)
+      return final_reply
 
 
 def run_manager_agent(case_summary, conversation_id):
   conv = Conversation.objects.get(id=conversation_id)
+
+  event = {"type": "manager", "message":f"Case received for review: {case_summary[:200]}" }
+  publish(conversation_id,event)
+
   AgentLog.objects.create(conversation=conv, event_type="manager", message=f"Case received for review: {case_summary[:200]}")
   manager_messages = [
     {"role": "user", "content": case_summary} # user is task giver
@@ -318,6 +336,8 @@ def run_manager_agent(case_summary, conversation_id):
       for block in response.content:
         if block.type == "tool_use":
           # log consulting risk agent
+          event = {"type": "manager", "message" : "Consulting risk agent for case" }
+          publish(conversation_id,event)
           AgentLog.objects.create(conversation=conv, event_type="manager", message=f"Consulting risk agent for case")
           result = execute_tool(block.name, block.input,conversation_id)
 
@@ -339,11 +359,17 @@ def run_manager_agent(case_summary, conversation_id):
     else:
       decision = response.content[0].text
       AgentLog.objects.create(conversation=conv, event_type="manager", message=f"Manager decision: {decision[:200]}")
+
+      event = {"type": "manager", "message": decision[:200] }
+      publish(conversation_id,event)
+
       return decision
 
   
 def run_risk_agent(user_id,conversation_id):
   conv = Conversation.objects.get(id=conversation_id)
+  event = {"type": "risk", "message":f"Assesment started for user {user_id}" }
+  publish(conversation_id,event)
   #Log assesment started
   AgentLog.objects.create(conversation=conv, event_type="risk", message=f"Assesment started for user {user_id}")
   risk_messages = [
@@ -361,14 +387,17 @@ def run_risk_agent(user_id,conversation_id):
 
     print(f'response stop reason ==> {response.stop_reason}')
     print(f'response content ==> {response.content}')
-
+    
     if response.stop_reason == 'tool_use':
       tool_result = []
       for block in response.content:
         if block.type == 'tool_use':
+
+          event = {"type": "risk", "message":f"Calling tool {block.name} with input {block.input}" }
+          publish(conversation_id,event)
+
           AgentLog.objects.create(conversation=conv, event_type="risk", message=f"Calling tool {block.name} with input {block.input}")
           result = execute_tool(block.name, block.input, conversation_id)
-          print(f"risk tool result => {result}")
 
           tool_result.append({
             "type": "tool_result",
@@ -376,18 +405,22 @@ def run_risk_agent(user_id,conversation_id):
             "content": str(result)
           })
 
-        risk_messages.append({
-          "role": "assistant",
-          "content": response.content
-        })
+      risk_messages.append({
+        "role": "assistant",
+        "content": response.content
+      })
 
-        risk_messages.append({
-          "role": "user",
-          "content": tool_result
-        })
+      risk_messages.append({
+        "role": "user",
+        "content": tool_result
+      })
     else:
       veredict = response.content[0].text
-      AgentLog.objects.create(conversation=conv, event_type="risk", message=f"Risk agent verdict: {veredict}")
+
+      event = {"type": "risk", "message":f"Risk agent verdict: {veredict[:200]}" }
+      publish(conversation_id,event)
+
+      AgentLog.objects.create(conversation=conv, event_type="risk", message=f"Risk agent verdict: {veredict[:200]}")
       return veredict
       
         

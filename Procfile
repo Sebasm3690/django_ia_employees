@@ -1,0 +1,1 @@
+web: gunicorn dj_AI_employees:wsgi

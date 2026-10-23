@@ -152,10 +152,10 @@ LOGGING = {
     'handlers': {
         'file': {
             'level': 'ERROR',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django_errors.log',
+            'class': 'logging.StreamHandler',
+            #'filename': BASE_DIR / 'logs' / 'django_errors.log',
             'formatter': 'verbose',
-            'encoding': 'utf-8',
+            #'encoding': 'utf-8',
         },
     },
     'loggers': {

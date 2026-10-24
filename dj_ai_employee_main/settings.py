@@ -174,3 +174,7 @@ LOGGING = {
 
 
 STATICFILES_STORAGE = 'whitenoise.storage.StaticFilesStorage'
+
+CSRF_TRUSTED_ORIGINS = {
+    "https://djangoiaemployees-production.up.railway.app",
+}

@@ -375,12 +375,12 @@ def run_manager_agent(case_summary, conversation_id):
         "content": tool_result
       })
     else:
-      decision = response.content[0].text
-      AgentLog.objects.create(conversation=conv, event_type="manager", message=f"Manager decision: {decision[:200]}")
+      decision = response.content[0].text    
 
       event = {"type": "manager", "message": decision[:200] }
       publish(conversation_id,event)
 
+      AgentLog.objects.create(conversation=conv, event_type="manager", message=f"Manager decision: {decision[:200]}")
       return decision
 
   

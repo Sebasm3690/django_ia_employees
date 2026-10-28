@@ -7,7 +7,8 @@ from orders.models import Order
 from .agents import run_support_agent
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import StreamingHttpResponse
-from support.event_queue import subscribe, unsubscribe, publish
+from support.event_queue import subscribe, unsubscribe, publish 
+from support.langchain_agents import run_support_agent_langchain
 
 # Create your views here.
 def chat(request, order_id):
@@ -26,7 +27,8 @@ def chat(request, order_id):
     event = {"type":"user_message","message":user_message,"name":request.user.first_name}
     publish(conversation.id, event)
 
-    reply = run_support_agent(user_message, conversation.id, order.id, request.user.id)
+    #reply = run_support_agent(user_message, conversation.id, order.id, request.user.id)
+    reply = run_support_agent_langchain(user_message, conversation.id, order.id, request.user.id)
     Message.objects.create(conversation=conversation, role="assistant", content=reply)
 
     return JsonResponse({"reply": reply})

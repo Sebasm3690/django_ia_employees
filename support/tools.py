@@ -87,3 +87,5 @@ def search_knowledge_base(query):
   result = rag_search(query)
   return {"result": result}
 
+
+
